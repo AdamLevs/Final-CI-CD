@@ -1,0 +1,114 @@
+---
+- name: Create Infrastructure
+  hosts: localhost
+  gather_facts: no
+  vars:
+    key_name: "Adam-Macbook"
+    private_key_path: "/home/ubuntu/Adam-Macbook.pem"
+    vpc_subnet_id: "subnet-0452b44b8cc2a5a34"
+    security_group_id: "sg-075ffce4a65065328"
+    instance_type: "t2.micro"
+    image_id: "ami-0182f373e66f89c85"
+    region: "us-east-1"
+    tags:
+      Name: CI-CD-Adam
+
+  tasks:
+    - name: Create EC2 instance
+      amazon.aws.ec2_instance:
+        key_name: "{{ key_name }}"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ image_id }}"
+        wait: yes
+        region: "{{ region }}"
+        count: 1
+        network:
+          assign_public_ip: yes
+        vpc_subnet_id: "{{ vpc_subnet_id }}"
+        security_groups:
+          - "{{ security_group_id }}"
+        tags:
+          Name: "{{ tags.Name }}"
+      register: ec2
+
+    - name: Add new instance to host group
+      add_host:
+        hostname: "{{ ec2.instances[0].public_ip_address }}"
+        groupname: app
+
+    - name: Wait for SSH to be available
+      wait_for:
+        host: "{{ ec2.instances[0].public_ip_address }}"
+        port: 22
+        delay: 10
+        timeout: 300
+        state: started
+
+- name: Setup web server
+  hosts: app
+  become: yes
+  gather_facts: yes
+  vars:
+    ansible_ssh_private_key_file: "/home/ubuntu/Adam-Macbook.pem"  # הוספת המשתנה כאן
+
+  tasks:
+    - name: Install epel-release package
+      ansible.builtin.yum:
+        name: epel-release
+        state: present
+
+    - name: Install required packages
+      ansible.builtin.yum:
+        name:
+          - git
+          - python3-pip
+          - yum-utils
+        state: present
+
+    - name: Add Docker CE repository
+      ansible.builtin.yum_repository:
+        name: docker-ce
+        description: Docker CE Stable - x86_64
+        baseurl: https://download.docker.com/linux/centos/7/x86_64/stable
+        gpgcheck: yes
+        gpgkey: https://download.docker.com/linux/centos/gpg
+        enabled: yes
+
+    - name: Install Docker and Docker Compose
+      ansible.builtin.yum:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose
+        state: present
+
+    - name: Start and enable Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Clone app repo
+      ansible.builtin.git:
+        repo: 'https://github.com/AdamLevs/Adam-Final-CI-CD.git'
+        dest: /home/centos/Adam-Final-CI-CD
+        update: yes
+
+    - name: Build Docker image
+      community.docker.docker_image:
+        name: my-app
+        tag: latest
+        source: build
+        build:
+          path: /home/centos/Adam-Final-CI-CD/src/
+        state: present
+
+    - name: Run Docker app
+      community.docker.docker_container:
+        name: my-app
+        image: my-app:latest
+        state: started
+        ports:
+          - "80:80"
+

@@ -1,0 +1,27 @@
+pipeline {
+    agent any
+    stages {
+        stage('Build') {
+            steps {
+                script {
+                    sh 'docker build -t your-dockerhub-username/my-app:latest .'
+                }
+            }
+        }
+        stage('Push') {
+            steps {
+                script {
+                    sh 'docker push your-dockerhub-username/my-app:latest'
+                }
+            }
+        }
+        stage('Deploy') {
+            steps {
+                script {
+                    sh 'docker run -d -p 80:80 your-dockerhub-username/my-app:latest'
+                }
+            }
+        }
+    }
+}
+
